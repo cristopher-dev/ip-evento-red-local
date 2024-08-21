@@ -2,6 +2,10 @@ const dgram = require("dgram");
 const server = dgram.createSocket("udp4");
 
 const DHCP_PORT = 67;
+const TIMEOUT = 60000; // Tiempo para considerar desconexión (60 segundos)
+
+// Tabla para guardar la última vez que se vio a cada cliente (identificados por la MAC)
+let clientsActivity = {};
 
 // Función para convertir un buffer a una dirección IP
 function bufferToIP(buffer) {
@@ -108,6 +112,25 @@ function parseDHCPOptions(buffer) {
   return options;
 }
 
+// Función para registrar la actividad de un cliente
+function updateClientActivity(mac) {
+  clientsActivity[mac] = Date.now(); // Guardamos la última vez que se vio al cliente
+
+  // Reiniciamos un temporizador para verificar si el cliente se ha desconectado
+  if (clientsActivity[mac].timeout) {
+    clearTimeout(clientsActivity[mac].timeout);
+  }
+
+  clientsActivity[mac].timeout = setTimeout(() => {
+    console.log(
+      `Cliente ${mac} desconectado (sin actividad por ${
+        TIMEOUT / 1000
+      } segundos).`
+    );
+    delete clientsActivity[mac]; // Eliminar el cliente de la tabla de actividad
+  }, TIMEOUT);
+}
+
 server.on("message", (msg, rinfo) => {
   // Interpretar campos básicos
   const op = msg[0]; // Operación (1 para BOOTREQUEST)
@@ -144,6 +167,8 @@ server.on("message", (msg, rinfo) => {
   console.log(`  File: ${file}`);
   console.log(`  Magic Cookie: ${magicCookie.toString(16)}`);
   console.log("  Options:", options);
+
+  updateClientActivity(chaddr);
 });
 
 server.bind(DHCP_PORT, () => {
